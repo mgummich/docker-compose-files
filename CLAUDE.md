@@ -61,6 +61,8 @@ deploy:
 
 **Never use `latest` image tags.** Pin to exact versions (e.g. `image: vaultwarden/server:1.32.0`).
 
+**Never add a `version:` field** to compose.yaml — it is deprecated and ignored by modern Compose.
+
 ---
 
 ## Network Rules
@@ -78,6 +80,7 @@ networks:
 - **Never publish ports** on DB containers (`ports:` must not appear on postgres/redis/etc.)
 - Single-container stacks (static sites) only need `proxy`
 - Every multi-container stack needs its own `internal` network
+- **Never use `ports:` on any container** — Traefik routes via Docker network. `ports:` bypasses Traefik and Authelia entirely
 
 ---
 
@@ -140,6 +143,7 @@ Replace `SVCNAME` with a unique lowercase slug. The container must be on the `pr
 ```yaml
 socket-proxy:
   image: tecnativa/docker-socket-proxy:0.3
+  restart: unless-stopped
   networks: [socket]
   volumes:
     - /var/run/docker.sock:/var/run/docker.sock:ro
@@ -152,6 +156,21 @@ socket-proxy:
   read_only: true
   security_opt: [no-new-privileges=true]
   tmpfs: [/tmp:size=16m,mode=1777]
+  healthcheck:
+    test: ["CMD", "wget", "-qO-", "http://localhost:2375/version"]
+    interval: 30s
+    timeout: 5s
+    start_period: 10s
+    retries: 3
+  deploy:
+    resources:
+      limits:
+        cpus: "0.1"
+        memory: 32M
+        pids: 50
+      reservations:
+        cpus: "0.02"
+        memory: 16M
 ```
 
 The consumer connects via `DOCKER_HOST: tcp://socket-proxy:2375` on an `internal` network named `socket`.
@@ -171,7 +190,8 @@ All stateful services must label their volumes for the central backup stack to d
 ```yaml
 labels:
   - "docker-volume-backup.exec-label=SVCNAME-db"
-  - "docker-volume-backup.exec-pre=pg_dump -U $$POSTGRES_USER $$POSTGRES_DB > /var/lib/postgresql/data/dump.sql"
+  # Hardcode user and DB name — $POSTGRES_USER is not set when using POSTGRES_USER_FILE
+  - "docker-volume-backup.exec-pre=pg_dump -U SVCNAME SVCNAME > /var/lib/postgresql/data/dump.sql"
 ```
 
 **Stop-during-backup (e.g. Jellyfin):**
@@ -210,23 +230,45 @@ The `Makefile` must have these targets with this exact behavior:
 
 When a service needs a database, give it a dedicated Postgres container in the same stack. Never share Postgres between stacks.
 
+Current stable version: `postgres:17.10-alpine` — check https://hub.docker.com/_/postgres/tags for updates.
+
 ```yaml
 services:
   db:
-    image: postgres:16-alpine           # pin exact minor version
+    image: postgres:17.10-alpine
     user: "70:70"                       # postgres uid in alpine image
     networks: [internal]               # never proxy
     volumes:
       - db_data:/var/lib/postgresql/data
+      - /dev/shm/SVCNAME-secrets/db_password:/run/secrets/db_password:ro
     environment:
-      - POSTGRES_USER_FILE=/run/secrets/db_user
+      - POSTGRES_USER=SVCNAME           # not a secret — hardcode it
       - POSTGRES_PASSWORD_FILE=/run/secrets/db_password
-      - POSTGRES_DB_FILE=/run/secrets/db_name
-    # healthcheck, cap_drop, read_only, etc. — same as all containers
+      - POSTGRES_DB=SVCNAME             # not a secret — hardcode it
+    cap_drop: [ALL]
+    read_only: true
+    tmpfs:
+      - /tmp:size=64m,mode=1777
+      - /var/run/postgresql:size=16m,mode=0755   # required for read_only: true
+    security_opt: [no-new-privileges=true]
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "SVCNAME", "-d", "SVCNAME"]
+      interval: 30s
+      timeout: 5s
+      start_period: 15s
+      retries: 3
     labels:
       - "docker-volume-backup.exec-label=SVCNAME-db"
-      - "docker-volume-backup.exec-pre=pg_dump -U $$POSTGRES_USER $$POSTGRES_DB > /var/lib/postgresql/data/dump.sql"
+      # Hardcode user/db — $$POSTGRES_USER expands empty when using POSTGRES_USER_FILE
+      - "docker-volume-backup.exec-pre=pg_dump -U SVCNAME SVCNAME > /var/lib/postgresql/data/dump.sql"
 ```
+
+> **`depends_on` rule:** Any service that depends on Postgres must use `condition: service_healthy`:
+> ```yaml
+> depends_on:
+>   db:
+>     condition: service_healthy
+> ```
 
 ---
 
@@ -256,3 +298,7 @@ When adding a service that supports OIDC:
 - Commit `.env` — only `.env.sops` goes to git
 - Share Postgres between stacks
 - Put plaintext client secrets in Authelia OIDC config
+- Add `version:` field to compose.yaml — deprecated, ignored, don't write it
+- Use `ports:` on any container — Traefik routes via Docker network, `ports:` bypasses Authelia
+- Use `depends_on:` without `condition: service_healthy` — bare depends_on only waits for container start, not readiness
+- Omit `/var/run/postgresql` tmpfs on Postgres containers — required when `read_only: true`
