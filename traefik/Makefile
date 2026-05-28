@@ -17,10 +17,13 @@ SOPS := docker run --rm \
 
 secrets-init: ## Decrypt secrets to RAM-backed tmpfs — never touches disk
 	@mkdir -p $(SECRETS_DIR) && chmod 700 $(SECRETS_DIR)
-	@$(SOPS) --decrypt --extract '["CF_DNS_API_TOKEN"]'                $(SOPS_FILE) > $(SECRETS_DIR)/cf_dns_api_token
-	@$(SOPS) --decrypt --extract '["AUTHELIA_JWT_SECRET"]'             $(SOPS_FILE) > $(SECRETS_DIR)/authelia_jwt_secret
-	@$(SOPS) --decrypt --extract '["AUTHELIA_SESSION_SECRET"]'         $(SOPS_FILE) > $(SECRETS_DIR)/authelia_session_secret
-	@$(SOPS) --decrypt --extract '["AUTHELIA_STORAGE_ENCRYPTION_KEY"]' $(SOPS_FILE) > $(SECRETS_DIR)/authelia_storage_key
+	@$(SOPS) --decrypt --input-type dotenv $(SOPS_FILE) > $(SECRETS_DIR)/.env.tmp
+	@chmod 600 $(SECRETS_DIR)/.env.tmp
+	@grep '^CF_DNS_API_TOKEN='                $(SECRETS_DIR)/.env.tmp | cut -d'=' -f2- > $(SECRETS_DIR)/cf_dns_api_token
+	@grep '^AUTHELIA_JWT_SECRET='             $(SECRETS_DIR)/.env.tmp | cut -d'=' -f2- > $(SECRETS_DIR)/authelia_jwt_secret
+	@grep '^AUTHELIA_SESSION_SECRET='         $(SECRETS_DIR)/.env.tmp | cut -d'=' -f2- > $(SECRETS_DIR)/authelia_session_secret
+	@grep '^AUTHELIA_STORAGE_ENCRYPTION_KEY=' $(SECRETS_DIR)/.env.tmp | cut -d'=' -f2- > $(SECRETS_DIR)/authelia_storage_key
+	@rm -f $(SECRETS_DIR)/.env.tmp
 	@chmod 600 $(SECRETS_DIR)/*
 	@echo "Secrets written to $(SECRETS_DIR) (RAM only)"
 
@@ -29,8 +32,7 @@ secrets-clean: ## Wipe secrets from RAM
 	@echo "Secrets wiped from $(SECRETS_DIR)"
 
 up: secrets-init ## Start stack — secret values never appear in env or docker inspect
-	@DOMAIN=$$($(SOPS) --decrypt --extract '["DOMAIN"]' $(SOPS_FILE)) \
-	 ACME_EMAIL=$$($(SOPS) --decrypt --extract '["ACME_EMAIL"]' $(SOPS_FILE)) \
+	@env $$($(SOPS) --decrypt --input-type dotenv $(SOPS_FILE) | grep -E '^(DOMAIN|ACME_EMAIL)=') \
 	 $(COMPOSE) up -d
 
 down: ## Stop stack and wipe secrets from RAM
