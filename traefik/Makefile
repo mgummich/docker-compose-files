@@ -6,6 +6,7 @@ AGE_KEY     ?= $(HOME)/.config/sops/age/keys.txt
 
 # Non-interactive sops runner — mounts .env.sops, .sops.yaml, and age key
 SOPS := docker run --rm \
+  --user "$(shell id -u):$(shell id -g)" \
   -v "$(CURDIR)/$(SOPS_FILE):/work/$(SOPS_FILE)" \
   -v "$(CURDIR)/.sops.yaml:/work/.sops.yaml:ro" \
   -v "$(AGE_KEY):/age/keys.txt:ro" \
@@ -47,6 +48,7 @@ ps: ## Show service status
 
 encrypt: ## Encrypt .env → .env.sops (then delete .env)
 	docker run --rm \
+	  --user "$(shell id -u):$(shell id -g)" \
 	  -v "$(CURDIR)/.env:/work/.env:ro" \
 	  -v "$(CURDIR)/.sops.yaml:/work/.sops.yaml:ro" \
 	  -v "$(AGE_KEY):/age/keys.txt:ro" \
@@ -62,6 +64,7 @@ decrypt: ## Decrypt .env.sops → .env (for inspection only)
 
 edit: ## Edit secrets in-place without decrypting to disk
 	docker run --rm -it \
+	  --user "$(shell id -u):$(shell id -g)" \
 	  -v "$(CURDIR)/$(SOPS_FILE):/work/$(SOPS_FILE)" \
 	  -v "$(CURDIR)/.sops.yaml:/work/.sops.yaml:ro" \
 	  -v "$(AGE_KEY):/age/keys.txt:ro" \
