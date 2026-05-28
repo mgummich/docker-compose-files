@@ -1,0 +1,109 @@
+---
+theme: dark
+
+server:
+  host: 0.0.0.0
+  port: 9091
+  timeouts:
+    read: 6s
+    write: 6s
+    idle: 30s
+  buffers:
+    read: 4096
+    write: 4096
+  endpoints:
+    enable_pprof: false     # disable Go profiling endpoint
+    enable_expvars: false   # disable runtime variable exposure
+
+log:
+  level: warn
+  format: json
+
+# Enforce TOTP as the only 2FA method
+default_2fa_method: totp
+
+totp:
+  disable: false
+  issuer: "${DOMAIN}"
+  algorithm: sha1  # RFC 6238 standard — do not change
+  digits: 6
+  period: 30
+  skew: 1          # allows ±1 period (30s) clock drift
+
+# NTP validation — TOTP requires accurate time; fail startup if unavailable
+ntp:
+  address: "time.cloudflare.com:123"
+  version: 4
+  max_desync: 3s
+  disable_startup_check: false
+  disable_failure: false
+
+# Require strong passwords on account creation / password reset
+password_policy:
+  zxcvbn:
+    enabled: true
+    min_score: 3  # 0-4 scale; 3 = "good", 4 = "strong"
+
+authentication_backend:
+  file:
+    path: /data/users_database.yml
+    watch: true
+    password:
+      algorithm: argon2id
+      iterations: 3        # increased from 1 — slows offline brute force
+      key_length: 32
+      salt_length: 16
+      memory: 65536
+      parallelism: 4
+
+access_control:
+  default_policy: deny
+  rules:
+    # Authelia itself must bypass — do not add auth middleware here
+    - domain: "auth.${DOMAIN}"
+      policy: bypass
+
+    # Traefik dashboard — requires 2FA
+    - domain: "traefik.${DOMAIN}"
+      policy: two_factor
+
+    # All other subdomains — requires 2FA
+    - domain: "*.${DOMAIN}"
+      policy: two_factor
+
+session:
+  name: authelia_session
+  # lax required — strict breaks forward-auth redirect flow across subdomains
+  same_site: lax
+  expiration: 1h
+  inactivity: 10m
+  remember_me: 8h  # set to 0 to disable persistent sessions entirely
+  cookies:
+    - domain: "${DOMAIN}"
+      authelia_url: "https://auth.${DOMAIN}"
+      default_redirection_url: "https://${DOMAIN}"
+
+regulation:
+  max_retries: 3    # reduced from 5
+  find_time: 5m     # widened from 2m
+  ban_time: 30m     # increased from 10m
+
+storage:
+  local:
+    path: /data/db.sqlite3
+
+telemetry:
+  metrics:
+    enabled: false
+
+notifier:
+  disable_startup_check: false
+  filesystem:
+    filename: /data/notification.txt
+  # Switch to SMTP for real notifications:
+  # smtp:
+  #   host: smtp.example.com
+  #   port: 587
+  #   username: ${SMTP_USER}
+  #   password: ${SMTP_PASSWORD}
+  #   sender: authelia@${DOMAIN}

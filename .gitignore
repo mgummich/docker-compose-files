@@ -1,0 +1,20 @@
+# Secrets — never commit plaintext
+.env
+**/.env
+*.key
+*.pem
+
+# TLS certificates — contain private keys
+**/letsencrypt/
+
+# macOS
+.DS_Store
+
+# Editor
+.vscode/
+.idea/
+*.swp
+
+# Claude Code — local overrides and cached remote skills
+.claude/settings.local.json
+.claude/skills/

@@ -1,0 +1,13 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(python3 *)",
+      "Skill(update-config)"
+    ]
+  },
+  "skills": {
+    "docker": {
+      "source": "github:OpenAEC-Foundation/Docker-Claude-Skill-Package"
+    }
+  }
+}

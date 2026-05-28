@@ -1,0 +1,3 @@
+creation_rules:
+  - path_regex: \.env$
+    age: &default_key age1xxxxxxxxxxxxxxxxxx  # replace with: age-keygen -o ~/.config/sops/age/keys.txt

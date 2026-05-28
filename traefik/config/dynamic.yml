@@ -1,0 +1,157 @@
+# Dynamic configuration — Traefik hot-reloads this file. No restart needed.
+
+http:
+  middlewares:
+
+    # -------------------------------------------------------------------------
+    # Security headers
+    # Apply to every service via chain-default or chain-admin.
+    # -------------------------------------------------------------------------
+    secure-headers:
+      headers:
+        # HSTS — 2 years, preload-ready
+        stsSeconds: 63072000
+        stsIncludeSubdomains: true
+        stsPreload: true
+        forceSTSHeader: true
+
+        # Prevent MIME sniffing
+        contentTypeNosniff: true
+
+        # Clickjacking — allow same origin framing (use chain-admin for DENY)
+        customFrameOptionsValue: "SAMEORIGIN"
+
+        # XSS
+        browserXssFilter: true
+
+        # Referrer
+        referrerPolicy: "strict-origin-when-cross-origin"
+
+        # Permissions — deny all sensitive APIs
+        permissionsPolicy: >-
+          accelerometer=(),
+          camera=(),
+          display-capture=(),
+          geolocation=(),
+          gyroscope=(),
+          magnetometer=(),
+          microphone=(),
+          payment=(),
+          usb=(),
+          xr-spatial-tracking=()
+
+        # Remove fingerprinting headers
+        customResponseHeaders:
+          Server: ""
+          X-Powered-By: ""
+          X-AspNet-Version: ""
+          # Cross-origin isolation headers
+          Cross-Origin-Opener-Policy: "same-origin"
+          Cross-Origin-Resource-Policy: "same-site"
+
+    # Stricter variant for admin UIs — hard deny framing, enforce COEP
+    secure-headers-admin:
+      headers:
+        stsSeconds: 63072000
+        stsIncludeSubdomains: true
+        stsPreload: true
+        forceSTSHeader: true
+        contentTypeNosniff: true
+        frameDeny: true
+        browserXssFilter: true
+        referrerPolicy: "strict-origin-when-cross-origin"
+        permissionsPolicy: >-
+          accelerometer=(),
+          camera=(),
+          display-capture=(),
+          geolocation=(),
+          gyroscope=(),
+          magnetometer=(),
+          microphone=(),
+          payment=(),
+          usb=(),
+          xr-spatial-tracking=()
+        customResponseHeaders:
+          Server: ""
+          X-Powered-By: ""
+          X-AspNet-Version: ""
+          Cross-Origin-Opener-Policy: "same-origin"
+          Cross-Origin-Embedder-Policy: "require-corp"
+          Cross-Origin-Resource-Policy: "same-origin"
+
+    # -------------------------------------------------------------------------
+    # Rate limiting
+    # -------------------------------------------------------------------------
+
+    # General services — 100 req/s sustained, burst 200
+    rate-limit:
+      rateLimit:
+        average: 100
+        burst: 200
+        period: 1s
+
+    # Auth endpoints and admin UIs — 20 req/s sustained, burst 30
+    rate-limit-strict:
+      rateLimit:
+        average: 20
+        burst: 30
+        period: 1s
+
+    # -------------------------------------------------------------------------
+    # Compression (performance)
+    # Gzip + Brotli, skip SSE streams and already-compressed types.
+    # -------------------------------------------------------------------------
+    compress:
+      compress:
+        excludedContentTypes:
+          - text/event-stream
+          - application/grpc
+
+    # -------------------------------------------------------------------------
+    # Middleware chains
+    # Reference these in service labels or static routes.
+    #
+    # Usage (Docker labels):
+    #   Regular service:  middlewares=authelia@docker,chain-default@file
+    #   Admin UI:         middlewares=authelia@docker,chain-admin@file
+    #   Auth endpoint:    middlewares=chain-admin@file  (no authelia — IS authelia)
+    #   Public endpoint:  middlewares=chain-default@file  (no authelia)
+    # -------------------------------------------------------------------------
+
+    # For regular services behind Authelia
+    chain-default:
+      chain:
+        middlewares:
+          - rate-limit
+          - secure-headers
+          - compress
+
+    # For admin UIs and auth endpoints — stricter headers + tighter rate limit
+    chain-admin:
+      chain:
+        middlewares:
+          - rate-limit-strict
+          - secure-headers-admin
+          - compress
+
+  # ---------------------------------------------------------------------------
+  # Static routes — for non-Docker services (NAS, VMs, local services)
+  # Uncomment and adapt. File changes are hot-reloaded — no restart needed.
+  # ---------------------------------------------------------------------------
+  # routers:
+  #   my-service:
+  #     rule: "Host(`service.example.com`)"
+  #     entryPoints: [websecure]
+  #     service: my-service-backend
+  #     tls:
+  #       certResolver: cloudflare
+  #     middlewares:
+  #       - authelia@docker
+  #       - chain-default
+  #
+  # services:
+  #   my-service-backend:
+  #     loadBalancer:
+  #       servers:
+  #         - url: "http://192.168.1.10:8080"
+  #       passHostHeader: true
