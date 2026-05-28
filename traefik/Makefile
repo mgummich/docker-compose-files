@@ -59,7 +59,7 @@ encrypt: ## Encrypt .env → .env.sops (then delete .env)
 	@echo "Encrypted. Commit $(SOPS_FILE), keep .env out of git."
 
 decrypt: ## Decrypt .env.sops → .env (for inspection only)
-	$(SOPS) --decrypt $(SOPS_FILE) > .env
+	$(SOPS) --decrypt --input-type dotenv --output-type dotenv $(SOPS_FILE) > .env
 	@echo "WARNING: .env is plaintext on disk. Delete after use."
 
 edit: ## Edit secrets in-place without decrypting to disk
